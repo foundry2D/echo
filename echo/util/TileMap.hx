@@ -1,5 +1,14 @@
 package echo.util;
 
+enum TileShape {
+  None;
+  Block;
+  TopLeft;
+  TopRight;
+  BottomLeft;
+  BottomRight;
+}
+
 class TileMap {
   /**
    * Generates an optimized Array of Bodies from an Array of `Int`s representing a TileMap.
@@ -14,8 +23,20 @@ class TileMap {
    * @return Array<Body>
    */
   public static function generate(data:Array<Int>, tile_width:Int, tile_height:Int, width_in_tiles:Int, height_in_tiles:Int, offset_x:Float = 0,
-      offset_y:Float = 0, start_index:Int = 0):Array<Body> {
-    inline function generate_rect(x:Int, y:Int, width:Int, height:Int, data:Array<Array<Int>>):Body {
+      offset_y:Float = 0, start_index:Int = 0, ?ignore:Array<Int>, ?top_left_slopes:Array<Int>, ?top_right_slopes:Array<Int>, ?bottom_left_slopes:Array<Int>,
+      ?bottom_right_slopes:Array<Int>):Array<Body> {
+    inline function is_ignored(index:Int) {
+      return ignore != null && ignore.indexOf(index) > -1;
+    }
+    function get_shape(index:Int):TileShape {
+      if (is_ignored(index)) return None;
+      if (top_left_slopes != null && top_left_slopes.indexOf(index) > -1) return TopLeft;
+      if (top_right_slopes != null && top_right_slopes.indexOf(index) > -1) return TopRight;
+      if (bottom_left_slopes != null && bottom_left_slopes.indexOf(index) > -1) return BottomLeft;
+      if (bottom_right_slopes != null && bottom_right_slopes.indexOf(index) > -1) return BottomRight;
+      return Block;
+    }
+    inline function generate_body(x:Int, y:Int, width:Int, height:Int, data:Array<Array<Int>>, shape:TileShape):Body {
       var yy = y + 1;
       var flag = false;
       while (yy < data.length - 1) {
@@ -24,7 +45,8 @@ class TileMap {
           continue;
         }
         for (j in 0...width) {
-          if (data[yy][j + x] <= start_index) flag = true;
+          var i = data[yy][j + x];
+          if (i <= start_index && get_shape(i) != shape) flag = true;
         }
         if (!flag) {
           for (j in 0...width) {
@@ -38,10 +60,14 @@ class TileMap {
         x: x * tile_width + ((tile_width * width) * 0.5) + offset_x,
         y: y * tile_height + (tile_height * height * 0.5) + offset_y,
         mass: 0,
-        shape: {
-          type: RECT,
-          width: tile_width * width,
-          height: tile_height * height
+        shape: switch (shape) {
+          case Block:
+            {
+              type: RECT,
+              width: tile_width * width,
+              height: tile_height * height
+            };
+          default: null;
         }
       });
     }
@@ -57,16 +83,21 @@ class TileMap {
       var start_x = -1;
       var width = 0;
       var height = 1;
+      var shape = None;
       for (x in 0...tmp[y].length) {
         var i = tmp[y][x];
-        if (i != -1 && i > start_index) {
-          if (start_x == -1) start_x = x;
+        var i_shape = get_shape(i);
+        if (i != -1 && i > start_index && !is_ignored(i) && (shape == None || shape == i_shape)) {
+          if (start_x == -1) {
+            start_x = x;
+            shape = i_shape;
+          }
           width += 1;
           tmp[y][x] = -1;
         }
         else {
           if (start_x != -1) {
-            colliders.push(generate_rect(start_x, y, width, height, tmp));
+            colliders.push(generate_body(start_x, y, width, height, tmp, shape));
             start_x = -1;
             width = 0;
             height = 1;
@@ -74,7 +105,7 @@ class TileMap {
         }
       }
       if (start_x != -1) {
-        colliders.push(generate_rect(start_x, y, width, height, tmp));
+        colliders.push(generate_body(start_x, y, width, height, tmp, shape));
         start_x = -1;
         width = 0;
         height = 1;
